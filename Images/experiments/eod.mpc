@@ -1,0 +1,120 @@
+num_classes = 7 #int(program.args[1])  # 6
+N = 1   # num of images 10
+h = 48 #int(program.args[3])   # 48
+w = 48 #int(program.args[4])   # 48
+c = 1 #int(program.args[5])   #  1
+
+#program.use_split(2)
+#program.use_trunc_pr = True
+program.options.cisc = True
+
+from ml import *
+Layer.n_threads = 16
+FixConv2d.use_conv2ds = True
+
+
+
+# define architecture of the CNN
+layers = [
+        FixConv2d([1,48,48,1], (5,5,1,64), (64,), [1, 44, 44, 64], (1, 1), padding='VALID', tf_weight_format='True'),
+        Relu([1, 44, 44, 64]),
+        FixAveragePool2d((1, 44, 44, 64), (1, 20, 20, 64), (5, 5),(2,2)),
+        FixConv2d((1, 20, 20, 64), ( 3, 3, 64, 64), (64,), (1, 18, 18, 64), (1, 1), padding='VALID', tf_weight_format='True'),
+        Relu([1, 18, 18, 64]),
+        FixConv2d((1, 18, 18, 64), (3, 3, 64,64), (64,), (1, 16, 16, 64), (1, 1), padding='VALID', tf_weight_format='True'),
+        Relu([1, 16, 16, 64]),
+        FixAveragePool2d((1, 16, 16, 64), (1, 7, 7, 64), (3, 3),(2,2)),
+        FixConv2d((1, 7, 7, 64), ( 3, 3, 64,128), (128,), (1, 5, 5, 128), (1, 1), padding='VALID', tf_weight_format='True'),
+        Relu([1, 5, 5, 128]),
+        FixConv2d((1, 5, 5, 128), ( 3, 3, 128,128), (128,), (1, 3, 3, 128), (1, 1), padding='VALID', tf_weight_format='True'),
+        Relu([1, 3, 3, 128]),
+        FixAveragePool2d((1, 3, 3, 128), (1, 1, 1, 128), (3, 3),(2,2)),
+        Dense(1,128,1024,activation='relu'),
+        Dense(1,1024,1024,activation='relu'),
+        Dense(1,1024,7,activation='id'),
+        Argmax((1, 7))
+        ]
+
+# read secret shares of images
+alice = MultiArray([N,h,w,c],sfix)
+alice.input_from(0)
+
+# get labels
+#y_true = sint.Array(N)
+#y_true.input_from(0)
+
+y_predict = Array(N,sint)
+
+# get sensitive attributes 0: female 1: male
+#sensitive = Array(N,sint)
+#sensitive.input_from(0)
+
+
+for layer in layers:
+    layer.input_from(1)
+
+graph = Optimizer()
+graph.layers = layers
+
+@for_range(N)
+def _(i):
+    layers[0].X.assign_vector(alice[i].get_vector())
+    graph.forward(1)
+    y_predict[i] = layers[-1].Y[0]
+
+y_predict.input_from(1)
+
+## calculate TN,TP,FN,FP
+TP_M = Array(num_classes,sfix)
+TN_M = Array(num_classes,sfix)
+FP_M = Array(num_classes,sfix)
+FN_M = Array(num_classes,sfix)
+
+TP_F = Array(num_classes,sfix)
+TN_F = Array(num_classes,sfix)
+FP_F = Array(num_classes,sfix)
+FN_F = Array(num_classes,sfix)
+
+TPR_M = Array(num_classes,sfix)
+TPR_F = Array(num_classes,sfix)
+FPR_M = Array(num_classes,sfix)
+FPR_F = Array(num_classes,sfix)
+
+for class_ in range(num_classes):
+        @for_range_opt(N)
+        def _(i):
+            truth_is_class = y_true[i].__eq__(class_)
+            pred_is_class = y_predict[i].__eq__(class_)
+                    
+            is_Protected = sensitive[i]
+
+            tp = truth_is_class * pred_is_class   
+            tm =is_Protected * truth_is_class
+            pm = is_Protected * pred_is_class
+            tpm = is_Protected * tp
+
+            TP_M[class_] = TP_M[class_] +    tpm
+            FN_M[class_] = FN_M[class_] +   (tm - tpm)
+            FP_M[class_] = FP_M[class_] + (pm - tpm)
+            TN_M[class_] = TN_M[class_] + (is_Protected - tm -pm + tpm)
+
+            TP_F[class_] = TP_F[class_] + (tp - tpm)
+            FN_F[class_] = FN_F[class_] + (truth_is_class - tm - tp + tpm)
+            FP_F[class_] = FP_F[class_] + (pred_is_class - pm - tp + tpm)
+            TN_F[class_] = TN_F[class_] + (1 - truth_is_class - pred_is_class + tp - is_Protected +tm +pm-tpm)
+    
+
+        # calc tpr, fpr for each binary sensitive attr 
+        TPR_M[class_] = TP_M[class_] / (TP_M[class_] + FN_M[class_])
+        FPR_M[class_] = FP_M[class_] / (FP_M[class_] + TN_M[class_])
+        TPR_F[class_] = TP_F[class_] / (TP_F[class_] + FN_F[class_])
+        FPR_F[class_] = FP_M[class_] / (FP_M[class_] + TN_M[class_])
+
+#for i in range(num_classes):
+#      print("----------- %s -------",i)
+#      print("TPR_M: %s", TPR_M[i].reveal()) 
+#      print("TPR_F: %s", TPR_F[i].reveal())
+#      print("FPR_M: %s", FPR_M[i].reveal())
+#      print("FPR_F: %s", FPR_F[i].reveal())
+
+

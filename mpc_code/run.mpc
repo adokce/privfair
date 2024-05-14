@@ -1,0 +1,110 @@
+# In its current state, this code will not work as it requires other scripts to populate the parties input files.
+# This code simply serves as an example of code in MP-SPDZ. It is unoptimized, and not modular. As such, it should
+# not serve as an example of what 'good' MP-SPDZ code should look like, just what it can look like.
+
+from Compiler import mpc_math
+from Compiler import ml
+from Compiler import models
+from Compiler import fairness_metrics
+
+import json
+
+
+
+# from Compiler.library import public_input()
+
+# program.options_from_args()
+#
+# try:
+#     num_of_parties= int(program.args[1])
+#     model_owner_id= int(program.args[2])
+#     model_type = program.args[3]
+#     all_metadata = program.args[4]
+# except:
+#     print("WARNING - Could not read args correctly")
+#     raise Exception
+
+# programs.use_split(2)
+
+# @args - Public inputs
+settings_map = {'metrics': ['baseline', 'equalized_odds', 'demographic_parity', 'equal_opportunity'],'num_of_parties': '2','model_type': 'lr','model_owner_id': '0','all_metadata': '[[47], [200, 46]]','protected_col': '45','protected_col_vals': '[0,1]','recipients': '[0,1]'}
+
+ground_truth = None
+classifications = None
+model = None
+
+all_metadata = json.loads(settings_map['all_metadata'])
+model_owner_id = int(settings_map['model_owner_id'])
+protected_col_index = int(settings_map["protected_col"])
+protected_col_vals = json.loads(settings_map["protected_col_vals"])
+recipients = json.loads(settings_map["recipients"])
+
+model_type = settings_map['model_type']
+
+if model_type == "lr":
+    model = models.logistic_regression(all_metadata, model_owner_id)
+    classifications = model.classify()
+    ground_truth = model.get_true_labels()
+
+
+def main():
+
+    print(settings_map["metrics"])
+    metrics = settings_map["metrics"]
+
+    fairness_metric = fairness_metrics.metric(ground_truth, classifications, model.get_col(protected_col_index),
+                                              protected_col_vals)
+
+    metric_options = {"equalized_odds": equalized_odds,
+                      "demographic_parity": demographic_parity,
+                      "equal_opportunity": equal_opportunity,
+                      "equalized_odds_ratio": equalized_odds_ratio,
+                      "subgroup_accuracy": subgroup_accuracy,
+                      "baseline": baseline}
+
+    for metric in metrics:
+        metric_options[metric](fairness_metric)
+
+
+
+def equalized_odds(metric_function):
+    male, female = metric_function.equalized_odds()
+
+    print_ln("Equalized odds - male: %s", male.reveal())
+    print_ln("Equalized odds - female: %s", female.reveal())
+
+
+def demographic_parity(metric_function):
+    male, female = metric_function.demographic_parity()
+
+    print_ln("Demographic parity - male: %s", male.reveal())
+    print_ln("Demographic parity - female: %s", female.reveal())
+
+
+def equal_opportunity(metric_function):
+    male, female = metric_function.equal_opportunity()
+
+    print_ln("Equal opportunity - male: %s", male.reveal())
+    print_ln("Equal opportunity - female: %s", female.reveal())
+
+
+def equalized_odds_ratio(metric_function):
+    pass
+
+
+def subgroup_accuracy(metric_function):
+    pass
+
+
+def baseline(metric_function):
+    male, female = metric_function.baseline_metrics()
+
+    print_ln("male TP, FP, TN, FN: %s", male.reveal())
+    print_ln("female TP, FP, TN, FN: %s", female.reveal())
+
+
+
+
+
+
+main()
